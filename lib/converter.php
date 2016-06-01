@@ -1,11 +1,11 @@
 <?php
-namespace {
+namespace tptophp{
 
 
 	use Nette\PhpGenerator\ClassType;
+	use phptojs\util\OBFileWriter;
 
-	require_once __DIR__ . "/vendor/autoload.php";
-	require_once __DIR__ . "/lib/OBFileWriter.php";
+	require_once __DIR__ . "/OBFileWriter.php";
 
 	$obfw = new OBFileWriter(__DIR__ . '/php/phaser.comments.d.php');
 	$obfw->start();
@@ -28,7 +28,7 @@ namespace {
 		return str_repeat("\t", --$indentNum);
 	}
 
-	echo "<?php";
+	echo "<?php".PHP_EOL;
 	for ($lineNum = 0; $lineNum < count($lines); $lineNum++) {
 		$line = trim($lines[$lineNum]);
 		if (substr($line, 0, 2) == "//") {
@@ -45,7 +45,11 @@ namespace {
 			continue;
 		}
 		if (substr($line, 0, 13) == "declare class") {
+			echo "namespace {".PHP_EOL;
+			indent();
 			$lineNum = parseClass($lines, $lineNum);
+			oudent();
+			echo "}".PHP_EOL;
 			continue;
 		}
 		$obfw->end();
@@ -72,9 +76,14 @@ namespace {
 			}
 
 			if (substr($line, 0, 6) == "export") {
-				$line = str_replace(["export", "=", " ", ";"], "", $line);
-				echo $indent . "class {$line} {}" . PHP_EOL;
-				continue;
+				if (strpos($line,"=")!==false) {
+					$line = str_replace(["export", "=", " ", ";"], "", $line);
+					echo $indent . "class {$line} {}" . PHP_EOL;
+					continue;
+				}else{
+					$lineNum = parseClass($lines, $lineNum);
+					continue;
+				}
 			}
 			if (substr($line, 0, 5) == "class" || substr($line, 0, 9) == "interface") {
 				$lineNum = parseClass($lines, $lineNum);
@@ -105,6 +114,11 @@ namespace {
 					continue;
 				}
 			}
+			if (substr($line, 0, 4) == "enum") {
+				$lineNum=parseEnum($lines,$lineNum);
+				continue;
+			}
+
 			
 			$obfw->end();
 			echo "2:undefined line ".($lineNum+1).":`{$line}`";
@@ -114,11 +128,40 @@ namespace {
 		echo "}".PHP_EOL;
 		return $lineNum;
 	}
-
-	function parseClass($lines, $lineNum) {
+	function parseEnum($lines, $lineNum) {
 		global $obfw;
 		$indent = indent();
 		$line = $lines[$lineNum++];
+		$line = str_replace(["enum","{",], "", $line);
+		$line = trim($line);
+
+		$class = new ClassType($line);
+
+		$enumNum=0;
+		for (; $lineNum < count($lines); $lineNum++) {
+			$line = trim($lines[$lineNum]);
+			$line = trim(str_replace([","],"",$line));
+			
+			if ($line=="}"){
+				break;
+			}
+
+			$class->addConst($line,$enumNum++);
+		}
+
+		$class = $class->__toString();
+		echo preg_replace("/^(.*)/m",$indent."$1",$class);
+		oudent();
+		
+		return $lineNum;
+	}
+	function parseClass($lines, $lineNum) {
+		global $obfw;
+		$indent = getIndent();
+		$line = $lines[$lineNum++];
+		if (($pos=strpos($line,"<"))!==false && ($lastPos=strpos($line,">"))!==false){
+			$line=substr($line,0,$pos).substr($line,$lastPos+1);
+		}
 		$isInterface = strpos($line,"interface")!==false;
 		$isExtend = strpos($line,"extends")!==false;
 		$isImplements = strpos($line,"implements")!==false;
@@ -129,6 +172,7 @@ namespace {
 			$implTypes = trim(substr($line,$pos+10,$lastPos-$pos+10));
 			$implTypes = explode(",",$implTypes);
 			foreach($implTypes as $type){
+				$type=str_replace(["{"],"",$type);
 				$implementsTypes[]=trim($type);
 			}
 			$line=substr($line,0,$pos);
@@ -141,9 +185,10 @@ namespace {
 				$lastPos = strpos($line,"{");
 			}
 			$classType=trim(substr($line,$pos+7,$lastPos-$pos+7));
+			$classType=str_replace(["{"],"",$classType);
 			$line=substr($line,0,$pos);
 		}
-		$line = str_replace(["declare", "class", "interface", "extends", "{", '"', "'"], "", $line);
+		$line = str_replace(["export","declare", "class", "interface", "extends", "{", '"', "'"], "", $line);
 		$line = trim($line);
 
 		$class = new ClassType($line);
@@ -153,10 +198,16 @@ namespace {
 		if ($isExtend){
 			$class->addExtend(str_replace(".","\\",$classType));
 		}
+		if ($isImplements){
+			foreach($implementsTypes as $type){
+				$class->addImplement(str_replace(".","\\",$type));
+			}
+		}
 
 		$currentComment=[];
 		$currentCommentParams=[];
 		$currentCommentReturn="";
+		$knownMethods=[];
 		for (; $lineNum < count($lines); $lineNum++) {
 			$line = trim($lines[$lineNum]);
 
@@ -187,7 +238,10 @@ namespace {
 				$currentComment[]=$line;
 				continue;
 			}
-
+			if (substr($line,0,2)=="//"){
+				continue;
+			}
+			
 			$isStatic=false;
 
 			if ($line=="}"){
@@ -195,11 +249,18 @@ namespace {
 			}
 
 
+			if (substr($line,0,3)=="new"){
+				continue;
+			}
 			if (substr($line,0,6)=="static"){
 				$isStatic=true;
 				$line=trim(substr($line,6));
 			}
-			if (($pos=strpos($line,"("))!==false && ($lastPos=strpos($line,")"))!==false){
+			$dvojbodkaPos = strpos($line,":");
+			if (strpos($line,"(")===0){
+				continue;
+			}
+			if ((($pos=strpos($line,"("))!==false && ($lastPos=strpos($line,")"))!==false) && ($dvojbodkaPos==false || $dvojbodkaPos>$pos) ){
 				$funcName=substr($line,0,$pos);
 				if ($funcName=="constructor"){
 					$funcName="__construct";
@@ -209,6 +270,10 @@ namespace {
 					$isUnableType=substr($funcName,$ppos+1,$ppos-$llastPos+1);
 					$funcName=substr($funcName,0,$ppos);
 				}
+				if (in_array(strtolower($funcName),$knownMethods)){
+					continue;
+				}
+				$knownMethods[]=strtolower($funcName);
 				$method = $class->addMethod($funcName);
 				$method->setStatic($isStatic);
 				$params = substr($line,$pos+1,$lastPos-1-$pos);
@@ -239,7 +304,9 @@ namespace {
 						}
 					}
 					if ($type){
-						$paramComment.=str_replace(".","\\",$type)." ";
+						$type=str_replace(".","\\",$type)." ";
+						$type = str_replace(["any"],["mixed"],$type);
+						$paramComment.=$type;
 					}
 					if ($isMultiple){
 						$paramComment.="...";
@@ -263,10 +330,12 @@ namespace {
 					if (!$returnComment) {
 						$returnComment = "@return ";
 					}
-					$returnComment .= str_replace(".", "\\", $return) . " ";;
+					$return = str_replace(".", "\\", $return) . " ";
+					$return = str_replace(["any"],["mixed"],$return);
+					$returnComment .= $return;
 				}
 				if ($currentCommentReturn){
-					$returnComment .= " ".$currentCommentReturn;
+					$returnComment .= $currentCommentReturn;
 					$currentCommentReturn="";
 				}
 				if ($returnComment){
@@ -278,29 +347,89 @@ namespace {
 			$parts = explode(":",$line);
 			$property=$parts[0];
 			$propertyType=null;
+
+			$defaultValue=NULL;
 			if (count($parts)>1){
 				$propertyType=$parts[1];
-			}
-
-			$classProperty =$class->addProperty($property);
-			$classProperty->setStatic($isStatic);
-			if (count($currentComment)){
-				foreach($currentComment as $cmt){
-					$classProperty->addComment($cmt);
+				if (strpos($parts[count($parts)-1],"=>")!==false){
+					$propertyType = "callable";
+				}else {
+					if (substr(trim($propertyType), 0, 1) == "{") {
+						$propertyType="[]";
+						list($lineNum, $defaultValue) = parseArray($lines, $lineNum);
+					}
 				}
-				$currentComment=[];
 			}
-			if ($propertyType){
-				$classProperty->addComment("@var ".str_replace(".",'\\',$propertyType));
+			if ($isInterface){
+				$comment = "@property ";
+				if ($propertyType) {
+					$comment .= str_replace(".", '\\', $propertyType)." ";
+				}
+				$comment.="\${$property} ";
+				$comment.=join(" ",$currentComment);
+				$currentComment=[];
+				$class->addComment($comment);
+			}else {
+				if ($property=="" && $isStatic){
+					$isStatic=false;
+					$property="static";
+				}
+				$classProperty = $class->addProperty($property, $defaultValue);
+				$classProperty->setStatic($isStatic);
+				if (count($currentComment)) {
+					foreach ($currentComment as $cmt) {
+						$classProperty->addComment($cmt);
+					}
+					$currentComment = [];
+				}
+				if ($propertyType) {
+					$classProperty->addComment("@var " . str_replace(".", '\\', $propertyType));
+				}
 			}
 			continue;
 		}
 		
 		$class = $class->__toString();
 		echo preg_replace("/^(.*)/m",$indent."$1",$class);
-		oudent();
 		return $lineNum;
 	}
+	function parseArray($lines,$lineNum){
+		global $obfw;
+		$line=trim($lines[$lineNum++]);
 
+		$array=[];
+		if (trim(str_replace("{","",substr($line,strpos($line,"{"))))!=""){
+			$line = str_replace(["{","}"],"",$line);
+			$lines = explode(";",$line);
+			foreach($lines as $line){
+				if (trim($line)==""){
+					continue;
+				}
+				list($key,$value) = explode(":",$line);
+				$key=trim(str_replace(["?"],"",$key));
+				$array[$key]=null;
+			}
+			return [$lineNum,$array];
+		}
+
+		for (; $lineNum < count($lines); $lineNum++) {
+			$line=trim($lines[$lineNum]);
+			if ($line=="};"){
+				break;
+			}
+			$parts = explode(":",$line);
+			if (count($parts)!=2){
+				$obfw->end();
+				echo "3:undefined line ".($lineNum+1).":`{$line}`";
+				break;
+			}
+			list($key,$value) = $parts;
+			$key=trim(str_replace(["?"],"",$key));
+			$array[$key]=null;
+		}
+
+
+		return [$lineNum,$array];
+	}
 	$obfw->end();
 }

@@ -11,5 +11,10 @@
   ],
   "require": {
     "nette/php-generator": "v2.4.0-RC1"
+  },
+  "autoload": {
+    "classmap": [
+      "lib/converter.php"
+    ]
   }
 }

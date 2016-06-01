@@ -1,5 +1,5 @@
 <?php
-
+namespace phptojs\util;
 class OBFileWriter {
 	private $_filename;
 	private $_fp = null;
