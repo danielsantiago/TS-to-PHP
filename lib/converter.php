@@ -10,6 +10,7 @@ namespace tptophp {
 
 	function convert($tsFilePath,$exportFilePath) {
 		global $obfw, $actualFileName;
+		\tstophp\utils\resetExistedClasses();
 		$actualFileName=basename($tsFilePath);
 		$obfw = new OBFileWriter($exportFilePath);
 		$obfw->start();
@@ -110,6 +111,10 @@ namespace tstophp\utils{
 
 	$reservedKeyword=["default","function","eval","array"];
 	$existedClasses=[];
+	function resetExistedClasses(){
+		global $existedClasses;
+		$existedClasses=[];
+	}
 	function checkReservedKeyword(&$name,$checkExist=true){
 		global $reservedKeyword,$existedClasses;
 		foreach($reservedKeyword as $keyword){
@@ -332,11 +337,17 @@ namespace tstophp\utils{
 		}
 		if ($isExtend){
 			checkReservedKeyword($classType,false);
+			if (substr($classType,0,1)!="\\"){
+				$classType="\\".$classType;
+			}
 			$class->addExtend(str_replace(".","\\",$classType));
 		}
 		if ($isImplements){
 			foreach($implementsTypes as $type){
 				checkReservedKeyword($type,false);
+				if (substr($type,0,1)!="\\"){
+					$type="\\".$type;
+				}
 				$class->addImplement(str_replace(".","\\",$type));
 			}
 		}
@@ -471,7 +482,17 @@ namespace tstophp\utils{
 							$type=substr($type,0,$pos_).substr($type,$lastPos_+1);
 						}
 						$type=str_replace(".","\\",$type)." ";
-						$type = str_replace(["any"],["mixed"],$type);
+						$type = str_replace(["any","Function"],["mixed","callable"],$type);
+
+						$type = explode("|",$type);
+						foreach($type as $key=>$type_) {
+							if (substr($type_, 0, 1) != "\\") {
+								$type_ = "\\" . $type_;
+								$type[$key]=$type_;
+							}
+						}
+						$type=join("|",$type);
+
 						$paramComment.=$type;
 					}
 					if ($isMultiple){
@@ -497,7 +518,17 @@ namespace tstophp\utils{
 						$returnComment = "@return ";
 					}
 					$return = str_replace(".", "\\", $return) . " ";
-					$return = str_replace(["any"],["mixed"],$return);
+					$return = str_replace(["any","Function"],["mixed","callable"],$return);
+
+					$return = explode("|",$return);
+					foreach($return as $key=>$type) {
+						if (substr($type, 0, 1) != "\\") {
+							$type = "\\" . $type;
+							$return[$key]=$type;
+						}
+					}
+					$return=join("|",$return);
+
 					$returnComment .= $return;
 				}
 				if ($currentCommentReturn){
@@ -536,6 +567,15 @@ namespace tstophp\utils{
 			if ($isInterface){
 				$comment = "@property ";
 				if ($propertyType) {
+					$propertyType = explode("|",$propertyType);
+					foreach($propertyType as $key=>$type) {
+						if (substr($type, 0, 1) != "\\") {
+							$type = "\\" . $type;
+							$propertyType[$key]=$type;
+						}
+					}
+					$propertyType=join("|",$propertyType);
+					$propertyType = str_replace(["any","Function"],["mixed","callable"],$propertyType);
 					$comment .= str_replace(".", '\\', $propertyType)." ";
 				}
 				$comment.="\${$property} ";
@@ -556,6 +596,15 @@ namespace tstophp\utils{
 					$currentComment = [];
 				}
 				if ($propertyType) {
+					$propertyType = explode("|",$propertyType);
+					foreach($propertyType as $key=>$type) {
+						if (substr($type, 0, 1) != "\\") {
+							$type = "\\" . $type;
+							$propertyType[$key]=$type;
+						}
+					}
+					$propertyType=join("|",$propertyType);
+					$propertyType = str_replace(["any","Function"],["mixed","callable"],$propertyType);
 					$classProperty->addComment("@var " . str_replace(".", '\\', $propertyType));
 				}
 			}
