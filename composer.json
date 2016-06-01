@@ -1,0 +1,15 @@
+{
+  "name": "mostka/tstophp",
+  "description": "Typescript definition converter to PHP",
+  "minimum-stability": "dev",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Jozef Môstka",
+      "email": "jozef@mostka.com"
+    }
+  ],
+  "require": {
+    "nette/php-generator": "v2.4.0-RC1"
+  }
+}
