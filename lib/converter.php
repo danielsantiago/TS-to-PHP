@@ -21,6 +21,42 @@ namespace tptophp {
 		echo "<?php" . PHP_EOL;
 		for ($lineNum = 0; $lineNum < count($lines); $lineNum++) {
 			$line = trim($lines[$lineNum]);
+			if (substr($line, 0, 2) == "/*") {
+				for(;$lineNum < count($lines); $lineNum++){
+					$line = trim($lines[$lineNum]);
+					echo $line.PHP_EOL;
+					if (trim(substr($line,-2))=="*/"){
+						break;
+					}
+				}
+				continue;
+			}
+			if (substr($line, 0, 11) == "declare var" || substr($line, 0, 3) == "var") {
+				echo "namespace {" . PHP_EOL;
+				$line=trim(str_replace(["var","declare"],"",$line));
+				$parts = explode(":",$line);
+				if (count($parts)==2 && trim($parts[1])=="Function"){
+					\tstophp\utils\checkReservedKeyword($name);
+					echo "function {$name}(){}" . PHP_EOL;
+					continue;
+				}else
+				if (count($parts)==2){
+					if (strpos($line,"{")!==false){
+						\tstophp\utils\indent();
+						$lineNum = \tstophp\utils\parseClass($lines, $lineNum);
+						\tstophp\utils\oudent();
+					}else {
+						$name = trim($parts[0]);
+						\tstophp\utils\checkReservedKeyword($name);
+						echo "/**" . PHP_EOL;
+						echo " * @const " . trim(str_replace(".", "\\", $parts[1])) . PHP_EOL;
+						echo " */" . PHP_EOL;
+						echo "const {$name}=null;" . PHP_EOL;
+					}
+				}
+				echo "}" . PHP_EOL;
+				continue;
+			}
 			if (substr($line, 0, 2) == "//") {
 				echo $line . PHP_EOL;
 				continue;
@@ -32,14 +68,20 @@ namespace tptophp {
 			}
 			if (substr($line, 0, 14) == "declare module") {
 				$lineNum = \tstophp\utils\parseModule($lines, $lineNum);
+				if ($obfw->isEnd()){
+					break;
+				}
 				continue;
 			}
-			if (substr($line, 0, 13) == "declare class") {
+			if (substr($line, 0, 13) == "declare class" || substr($line, 0, 9) == "interface") {
 				echo "namespace {" . PHP_EOL;
 				\tstophp\utils\indent();
 				$lineNum = \tstophp\utils\parseClass($lines, $lineNum);
 				\tstophp\utils\oudent();
 				echo "}" . PHP_EOL;
+				continue;
+			}
+			if (substr($line, 0, 12) == "declare type" && (strpos($line,"=>")!==false || strpos($line,"|")!==false)) {
 				continue;
 			}
 			if (substr($line, 0, 16) == "declare function" || substr($line, 0, 15) == "export function") {
@@ -65,6 +107,27 @@ namespace tstophp\utils{
 
 	use Nette\PhpGenerator\ClassType;
 	use phptojs\util\OBFileWriter;
+
+	$reservedKeyword=["default","function","eval","array"];
+	$existedClasses=[];
+	function checkReservedKeyword(&$name,$checkExist=true){
+		global $reservedKeyword,$existedClasses;
+		foreach($reservedKeyword as $keyword){
+			if (strtolower(trim($name))==$keyword){
+				$name=trim($name)."_";
+				break;
+			}
+		}
+		if (trim($name)=="\$"){
+			$name="_";
+		}
+		if ($checkExist) {
+			while (in_array(strtolower(trim($name)), $existedClasses)) {
+				$name = trim($name) . "_";
+			}
+			$existedClasses[] = strtolower(trim($name));
+		}
+	}
 
 	function indent() {
 		global $indentNum;
@@ -129,6 +192,9 @@ namespace tstophp\utils{
 				$indent=getIndent();
 				echo $indent."}".PHP_EOL;
 				$lineNum = parseModule($lines,$lineNum,$currentNamespace);
+				if ($obfw->isEnd()){
+					return $lineNum;
+				}
 				echo $indent . "namespace " . join("\\", $currentNamespace) . " {" . PHP_EOL;
 				$indentNum=$oldIndentNum;
 				$indent=getIndent();
@@ -138,17 +204,28 @@ namespace tstophp\utils{
 				$line=trim(str_replace(["var","export"],"",$line));
 				$parts = explode(":",$line);
 				if (count($parts)==2 && trim($parts[1])=="Function"){
-					if ($parts[0]=="Default"){
-						$parts[0]="Default_";
-					}
-					echo $indent."function {$parts[0]}(){}".PHP_EOL;
+					$name=$parts[0];
+					checkReservedKeyword($name);
+					echo $indent."function {$name}(){}".PHP_EOL;
 					continue;
 				}
 				if (count($parts)==2){
-					echo "{$indent}/**".PHP_EOL;
-					echo "{$indent} * @const ".trim(str_replace(".","\\",$parts[1])).PHP_EOL;
-					echo "{$indent} */".PHP_EOL;
-					echo "{$indent}const ".trim($parts[0])."=null;".PHP_EOL;
+					if (strpos($line,"{")!==false){
+						list($lineNum,$var) = \tstophp\utils\parseArray($lines,$lineNum);
+						if ($obfw->isEnd()){
+							return $lineNum;
+						}
+						echo "const ".$parts[0]."=".json_encode($var).";";
+						continue;
+					}else {
+						$name = trim($parts[0]);
+						checkReservedKeyword($name);
+						echo "{$indent}/**" . PHP_EOL;
+						echo "{$indent} * @const " . trim(str_replace(".", "\\", $parts[1])) . PHP_EOL;
+						echo "{$indent} */" . PHP_EOL;
+						echo "{$indent}const {$name}=null;" . PHP_EOL;
+						continue;
+					}
 				}
 				continue;
 			}
@@ -159,6 +236,7 @@ namespace tstophp\utils{
 			if (substr($line, 0, 6) == "export") {
 				if (strpos($line,"=")!==false) {
 					$line = str_replace(["export", "=", " ", ";"], "", $line);
+					checkReservedKeyword($line);
 					echo $indent . "class {$line} {}" . PHP_EOL;
 					continue;
 				}else{
@@ -212,10 +290,10 @@ namespace tstophp\utils{
 		/**
 		 * @var OBFileWriter $obfw
 		 */
-		global $obfw;
+		global $obfw,$actualFileName;
 		$indent = getIndent();
 		$line = $lines[$lineNum++];
-		if (($pos=strpos($line,"<"))!==false && ($lastPos=strpos($line,">"))!==false){
+		while (($pos=strpos($line,"<"))!==false && ($lastPos=strpos($line,">"))!==false){
 			$line=substr($line,0,$pos).substr($line,$lastPos+1);
 		}
 		$isInterface = strpos($line,"interface")!==false;
@@ -244,18 +322,21 @@ namespace tstophp\utils{
 			$classType=str_replace(["{"],"",$classType);
 			$line=substr($line,0,$pos);
 		}
-		$line = str_replace(["export","declare", "class", "interface", "extends", "{", '"', "'"], "", $line);
+		$line = str_replace(["export","declare", "class", "interface", "extends", "{", '"', "'",":","var"], "", $line);
 		$line = trim($line);
+		checkReservedKeyword($line);
 
 		$class = new ClassType($line);
 		if ($isInterface) {
 			$class->setType('interface');
 		}
 		if ($isExtend){
+			checkReservedKeyword($classType,false);
 			$class->addExtend(str_replace(".","\\",$classType));
 		}
 		if ($isImplements){
 			foreach($implementsTypes as $type){
+				checkReservedKeyword($type,false);
 				$class->addImplement(str_replace(".","\\",$type));
 			}
 		}
@@ -270,10 +351,17 @@ namespace tstophp\utils{
 			if (strlen($line)==0){
 				continue;
 			}
-			if ($line=="/**"){
+			if ($line=="/**" || substr($line,0,3)=="/**"){
 				$currentComment=[];
 				$currentCommentParams=[];
 				$currentCommentReturn="";
+				if ($line!="/**"){
+					if (substr($line,-2)=="*/"){
+						$line=substr($line,0,-2);
+					}
+					$line=substr($line,3);
+					$currentComment[]=$line;
+				}
 				continue;
 			}
 			if ($line=="*/"){
@@ -300,12 +388,18 @@ namespace tstophp\utils{
 			
 			$isStatic=false;
 
-			if ($line=="}"){
+			if ($line=="}" || $line=="};"){
 				break;
 			}
 
 
 			if (substr($line,0,3)=="new"){
+				continue;
+			}
+			if (substr($line,0,1)=="(" || substr($line,0,1)=="<" || substr($line,0,1)=="["){
+				continue;
+			}
+			if (strpos($line,"(")!==false && strpos($line,")")!==false && strpos($line,"=>")!==false){
 				continue;
 			}
 			if (substr($line,0,6)=="static"){
@@ -316,10 +410,21 @@ namespace tstophp\utils{
 			if (strpos($line,"(")===0){
 				continue;
 			}
-			if ((($pos=strpos($line,"("))!==false && ($lastPos=strpos($line,")"))!==false) && ($dvojbodkaPos==false || $dvojbodkaPos>$pos) ){
+
+			if (((($pos=strpos($line,"("))!==false && ($lastPos=strpos($line,")"))!==false) && ($dvojbodkaPos==false || $dvojbodkaPos>$pos))
+				|| (($zavPos=strpos($line,"{"))!==false && strpos($line,"}")===false && strpos($line,")")===false  && $pos!==false && $zavPos>$pos) ){
 				$funcName=substr($line,0,$pos);
 				if ($funcName=="constructor"){
 					$funcName="__construct";
+				}
+				if (strpos($line,"{")!==false && strpos($line,"}")===false && strpos($line,")")===false){
+					list($lineNum,$var) = parseArray($lines,$lineNum);
+					if ($obfw->isEnd()){
+						return $lineNum;
+					}
+					$line = $line."callable".trim($lines[$lineNum]);
+					$line =str_replace(["{","}"],"",$line);
+					$lastPos=strpos($line,")");
 				}
 				$isUnableType=false;
 				if (($ppos=strpos($funcName,"<"))!==false && ($llastPos=strpos($funcName,">"))!==false){
@@ -330,6 +435,7 @@ namespace tstophp\utils{
 					continue;
 				}
 				$knownMethods[]=strtolower($funcName);
+				$funcName=trim(str_replace(["?"],[""],$funcName));
 				$method = $class->addMethod($funcName);
 				$method->setStatic($isStatic);
 				$params = substr($line,$pos+1,$lastPos-1-$pos);
@@ -347,6 +453,7 @@ namespace tstophp\utils{
 					$paramComment = "@param ";
 					$parts = explode(":",$param);
 					$param=$parts[0];
+					$param=str_replace("?","",$param);
 					$isMultiple=false;
 					if (substr($param,0,3)=="..."){
 						$param=substr($param,3);
@@ -360,6 +467,9 @@ namespace tstophp\utils{
 						}
 					}
 					if ($type){
+						while (($pos_=strpos($type,"/*"))!==false && ($lastPos_=strpos($type,"*/"))!==false){
+							$type=substr($type,0,$pos_).substr($type,$lastPos_+1);
+						}
 						$type=str_replace(".","\\",$type)." ";
 						$type = str_replace(["any"],["mixed"],$type);
 						$paramComment.=$type;
@@ -407,6 +517,9 @@ namespace tstophp\utils{
 			$defaultValue=NULL;
 			if (count($parts)>1){
 				$propertyType=$parts[1];
+				if (count($parts)>2){
+					$propertyType=join(":",array_slice($parts,1));
+				}
 				if (strpos($parts[count($parts)-1],"=>")!==false){
 					$propertyType = "callable";
 				}else {
@@ -468,6 +581,9 @@ namespace tstophp\utils{
 				if (trim($line)==""){
 					continue;
 				}
+				if (strpos($line,"(")!==false){
+					continue;
+				}
 				list($key,$value) = explode(":",$line);
 				$key=trim(str_replace(["?"],"",$key));
 				$array[$key]=null;
@@ -477,7 +593,7 @@ namespace tstophp\utils{
 
 		for (; $lineNum < count($lines); $lineNum++) {
 			$line=trim($lines[$lineNum]);
-			if ($line=="};" || $line=="}"){
+			if (strpos($line,"{")===false && strpos($line,"}")!==false){
 				break;
 			}
 			if (trim($line)==""){
@@ -485,9 +601,7 @@ namespace tstophp\utils{
 			}
 			$parts = explode(":",$line);
 			if (count($parts)!=2){
-				$obfw->end();
-				echo "3:undefined line {$actualFileName}:".($lineNum+1).":`{$line}`";
-				return [$lineNum,$array];
+				continue;
 			}
 			list($key,$value) = $parts;
 			$key=trim(str_replace(["?"],"",$key));
@@ -579,6 +693,7 @@ namespace tstophp\utils{
 				}
 				echo "{$indent} */".PHP_EOL;
 			}
+			checkReservedKeyword($funcName);
 			echo "{$indent}function {$funcName}(";
 			echo join(",",$currentParams);
 			echo "){}".PHP_EOL;
