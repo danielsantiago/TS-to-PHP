@@ -83,8 +83,8 @@ namespace {
 
 	function parseClass($lines, $lineNum) {
 		global $obfw;
-		$indent = getIndent();
-		$line = $lines[$lineNum++];
+		$indent = indent();
+		$line = $lines[$lineNum];
 		$line = str_replace(["declare", "class", "{", '"', "'"], "", $line);
 		$line = trim($line);
 
@@ -118,12 +118,18 @@ namespace {
 					continue;
 				}
 				$currentComment[]=$line;
+				continue;
 			}
 			if ($line=="**/"){
 				continue;
 			}
 
 			$isStatic=false;
+
+			if ($line=="}"){
+				break;
+			}
+
 
 			if (substr($line,0,6)=="static"){
 				$isStatic=true;
@@ -142,6 +148,7 @@ namespace {
 
 				foreach($currentComment as $cmt){
 					$method->addComment($cmt);
+					$currentComment=[];
 				}
 				foreach($params as $paramPos=>$param){
 					$paramComment = "@param ";
@@ -158,6 +165,7 @@ namespace {
 					if (isset($currentCommentParams[$paramPos])){
 						$paramComment.=" ".$currentCommentParams[$paramPos];
 					}
+					$currentCommentParams=[];
 					$method->addComment($paramComment);
 					$method->addParameter($param);
 				}
@@ -175,6 +183,7 @@ namespace {
 				}
 				if ($currentCommentReturn){
 					$returnComment .= " ".$currentCommentReturn;
+					$currentCommentReturn="";
 				}
 				if ($returnComment){
 					$method->addComment($returnComment);
@@ -190,23 +199,21 @@ namespace {
 			}
 
 			$classProperty =$class->addProperty($property);
+			$classProperty->setStatic($isStatic);
 			if (count($currentComment)){
 				foreach($currentComment as $cmt){
 					$classProperty->addComment($cmt);
 				}
+				$currentComment=[];
 			}
 			if ($propertyType){
 				$classProperty->addComment("@var ".str_replace(".",'\\',$propertyType));
 			}
 			continue;
-
-			$obfw->end();
-			echo "3:undefined line '{$line}'";
-			break;
 		}
 		
 		echo $class->__toString();
-		
+		oudent();
 		return $lineNum;
 	}
 
