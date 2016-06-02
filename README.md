@@ -19,5 +19,5 @@ Usage
 -----
 
 ```php
-\tptophp\convert($sourceTsFile,$outputPhpFile);
+\tptophp\Converter::convert($sourceTsFile,$outputPhpFile);
 ```
