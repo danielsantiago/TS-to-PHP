@@ -28,7 +28,8 @@ namespace tptophp {
 		}
 		
 		public function getFullMessage(){
-			return "Code: ".$this->getMessage().":".$this->getCode().":".$this->getFile().":".$this->getLine().":".$this->getOriginalLine();
+			return $this->getMessage().PHP_EOL."Code: ".$this->getCode().PHP_EOL."File: ".$this->getFile().PHP_EOL.
+				"Line: ".$this->getLine().PHP_EOL."Original Line: ".$this->getOriginalLine();
 		}
 	}
 
@@ -69,24 +70,25 @@ namespace tptophp {
 		}
 		
 		private function getNextLine(){
-			if (count($this->lines)>= $this->lineNum){
+			if (count($this->lines)<=$this->lineNum){
 				return false;
 			}
 			return trim($this->lines[$this->lineNum++]);
 		}
 		private function getCurrentLine(){
-			if (count($this->lines)>= $this->lineNum){
-				return false;
-			}
 			return trim($this->lines[$this->lineNum]);
+		}
+		private function getPreviousLine(){
+			return trim($this->lines[$this->lineNum-1]);
 		}
 		
 		private function _convert() {
 
 			echo "<?php" . PHP_EOL;
-			while ($line=$this->getNextLine()!==false) {
+			while (($line=$this->getNextLine())!==false) {
 				if (substr($line, 0, 2) == "/*") {
-					while ($line=$this->getNextLine()!==false) {
+					echo $line.PHP_EOL;
+					while (($line=$this->getNextLine())!==false) {
 						echo $line.PHP_EOL;
 						if (trim(substr($line,-2))=="*/"){
 							break;
@@ -96,11 +98,12 @@ namespace tptophp {
 				}
 				if (substr($line, 0, 11) == "declare var" || substr($line, 0, 3) == "var") {
 					echo "namespace {" . PHP_EOL;
+					$indent = $this->indent();
 					$line=trim(str_replace(["var","declare"],"",$line));
 					$parts = explode(":",$line);
 					if (count($parts)==2 && trim($parts[1])=="Function"){
 						$this->checkReservedKeyword($name);
-						echo "function {$name}(){}" . PHP_EOL;
+						echo "{$indent}function {$name}(){}" . PHP_EOL;
 						continue;
 					}else
 						if (count($parts)==2){
@@ -111,12 +114,13 @@ namespace tptophp {
 							}else {
 								$name = trim($parts[0]);
 								$this->checkReservedKeyword($name);
-								echo "/**" . PHP_EOL;
-								echo " * @const " . trim(str_replace(".", "\\", $parts[1])) . PHP_EOL;
-								echo " */" . PHP_EOL;
-								echo "const {$name}=null;" . PHP_EOL;
+								echo "{$indent}/**" . PHP_EOL;
+								echo "{$indent} * @const " . trim(str_replace(".", "\\", $parts[1])) . PHP_EOL;
+								echo "{$indent} */" . PHP_EOL;
+								echo "{$indent}const {$name}=null;" . PHP_EOL;
 							}
 						}
+					$this->oudent();
 					echo "}" . PHP_EOL;
 					continue;
 				}
@@ -188,7 +192,7 @@ namespace tptophp {
 		}
 		private function parseModule($currentNamespace = []) {
 			$indent = $this->getIndent();
-			$line = $this->getNextLine();
+			$line = $this->getPreviousLine();
 			$line = str_replace(["declare", "module", "{", '"', "'"], "", $line);
 			$namespaces = explode(".",$line);
 			foreach($namespaces as $namespace){
@@ -196,7 +200,7 @@ namespace tptophp {
 			}
 			echo $indent . "namespace " . join("\\", $currentNamespace) . " {" . PHP_EOL;
 			$indent = $this->indent();
-			while ($line= $this->getNextLine() !==false) {
+			while (($line= $this->getNextLine()) !==false) {
 				if (substr($line,0,2)=="//"){
 					echo $indent.$line.PHP_EOL;
 					continue;
@@ -282,14 +286,14 @@ namespace tptophp {
 		
 		private function parseEnum() {
 			$indent = $this->getIndent();
-			$line = $this->getNextLine();
+			$line = $this->getPreviousLine();
 			$line = str_replace(["export","enum","{",], "", $line);
 			$line = trim($line);
 
 			$class = new ClassType($line);
 
 			$enumNum=0;
-			do {
+			while (($line = $this->getNextLine()) !==false){
 				$line = trim(str_replace([","],"",$line));
 				if ($line==""){
 					continue;
@@ -300,7 +304,7 @@ namespace tptophp {
 				}
 
 				$class->addConst($line,$enumNum++);
-			} while ($line = $this->getNextLine() !==false);
+			}
 
 			$class = $class->__toString();
 			echo preg_replace("/^(.*)/m",$indent."$1",$class);
@@ -309,7 +313,7 @@ namespace tptophp {
 		
 		private function parseClass() {
 			$indent = $this->getIndent();
-			$line = $this->getNextLine();
+			$line = $this->getPreviousLine();
 			while (($pos=strpos($line,"<"))!==false && ($lastPos=strpos($line,">"))!==false){
 				$line=substr($line,0,$pos).substr($line,$lastPos+1);
 			}
@@ -368,7 +372,7 @@ namespace tptophp {
 			$currentCommentParams=[];
 			$currentCommentReturn="";
 			$knownMethods=[];
-			while ($line = $this->getNextLine() !== false) {
+			while (($line = $this->getNextLine()) !== false) {
 				if (strlen($line)==0){
 					continue;
 				}
@@ -620,7 +624,7 @@ namespace tptophp {
 		}
 		
 		private function parseArray(){
-			$line=$this->getCurrentLine();
+			$line=$this->getPreviousLine();
 
 			$array=[];
 			if (trim(str_replace("{","",substr($line,strpos($line,"{"))))!=""){
@@ -654,14 +658,14 @@ namespace tptophp {
 				list($key,$value) = $parts;
 				$key=trim(str_replace(["?"],"",$key));
 				$array[$key]=null;
-			}while($line = $this->getNextLine() !== false);
+			}while(($line = $this->getNextLine()) !== false);
 
 
 			return $array;
 		}
 
 		private function parseFunction(){
-			$line = $this->getNextLine();
+			$line = $this->getPreviousLine();
 			$line = str_replace(["function","declare","export"],"",$line);
 			$line = trim($line);
 			$indent = $this->getIndent();
