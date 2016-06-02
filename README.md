@@ -12,7 +12,7 @@ Installation and requirements
 The best way how to install TP-to-PHP is use a Composer:
 
 ```
-php composer.phar require mostka/tptophp
+php composer.phar require mostka/tstophp
 ```
 
 Usage
