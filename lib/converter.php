@@ -87,13 +87,12 @@ namespace tptophp {
 			echo "<?php" . PHP_EOL;
 			while (($line=$this->getNextLine())!==false) {
 				if (substr($line, 0, 2) == "/*") {
-					echo $line.PHP_EOL;
-					while (($line=$this->getNextLine())!==false) {
+					do {
 						echo $line.PHP_EOL;
 						if (trim(substr($line,-2))=="*/"){
 							break;
 						}
-					}
+					}while (($line=$this->getNextLine())!==false);
 					continue;
 				}
 				if (substr($line, 0, 11) == "declare var" || substr($line, 0, 3) == "var") {
