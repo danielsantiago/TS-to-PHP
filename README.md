@@ -19,5 +19,9 @@ Usage
 -----
 
 ```php
-\tptophp\Converter::convert($sourceTsFile,$outputPhpFile);
+try {
+    \tptophp\Converter::convert($tsFile, $phpFile);
+}catch (\tptophp\UnexpectedSyntaxException $e){
+	echo $e->getFullMessage();
+}
 ```

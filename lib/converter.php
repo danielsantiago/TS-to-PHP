@@ -6,6 +6,32 @@ namespace tptophp {
 
 	require_once __DIR__ . "/OBFileWriter.php";
 
+	class UnexpectedSyntaxException extends \Exception{
+		private $lineStr="";
+
+		/**
+		 * UnexpectedSyntaxException constructor.
+		 * @param string $file
+		 * @param int $line
+		 * @param string $lineStr
+		 * @param $code
+		 */
+		function __construct($file,$line,$lineStr,$code) {
+			parent::__construct("Unexpected syntax");
+			$this->file=$file;
+			$this->line=$line;
+			$this->lineStr=$lineStr;
+			$this->code=$code;
+		}
+		public function getOriginalLine(){
+			return $this->lineStr;
+		}
+		
+		public function getFullMessage(){
+			return "Code: ".$this->getMessage().":".$this->getCode().":".$this->getFile().":".$this->getLine().":".$this->getOriginalLine();
+		}
+	}
+
 	class Converter{
 		private static $self=null;
 		/**
@@ -23,8 +49,22 @@ namespace tptophp {
 			if (self::$self==null){
 				self::$self=new self();
 			}
-			
-			self::_convert($tsFilePath,$exportFilePath);
+
+			self::$self->existedClasses=[];
+			self::$self->actualFileName=basename($tsFilePath);
+			self::$self->obfw = new OBFileWriter($exportFilePath);
+			self::$self->obfw->start();
+
+			self::$self->lines = file($tsFilePath);
+			self::$self->lineNum=0;
+			self::$self->indentNum=0;
+			try {
+				self::$self->_convert();
+			}catch (UnexpectedSyntaxException $e){
+				self::$self->obfw->end();
+				throw $e;
+			}
+			self::$self->obfw->end();
 			
 		}
 		
@@ -41,15 +81,7 @@ namespace tptophp {
 			return trim($this->lines[$this->lineNum]);
 		}
 		
-		private function _convert($tsFilePath,$exportFilePath) {
-			$this->existedClasses=[];
-			$this->actualFileName=basename($tsFilePath);
-			$this->obfw = new OBFileWriter($exportFilePath);
-			$this->obfw->start();
-
-			$this->lines = file($tsFilePath);
-			$this->lineNum=0;
-			$this->indentNum=0;
+		private function _convert() {
 
 			echo "<?php" . PHP_EOL;
 			while ($line=$this->getNextLine()!==false) {
@@ -99,9 +131,6 @@ namespace tptophp {
 				}
 				if (substr($line, 0, 14) == "declare module") {
 					$this->parseModule();
-					if ($this->obfw->isEnd()){
-						break;
-					}
 					continue;
 				}
 				if (substr($line, 0, 13) == "declare class" || substr($line, 0, 9) == "interface") {
@@ -119,19 +148,13 @@ namespace tptophp {
 					echo "namespace {" . PHP_EOL;
 					$this->indent();
 					$this->parseFunction();
-					if ($this->obfw->isEnd()){
-						break;
-					}
 					$this->oudent();
 					echo "}" . PHP_EOL;
 					continue;
 				}
 
-				$this->obfw->end();
-				echo "1:undefined line {$this->actualFileName}:" . ($this->lineNum + 1) . ":'{$line}'";
-				break;
+				throw new UnexpectedSyntaxException($this->actualFileName,$this->lineNum+1,$line,2);
 			}
-			$this->obfw->end();
 		}
 		
 		private function checkReservedKeyword(&$name,$checkExist=true){
@@ -189,9 +212,6 @@ namespace tptophp {
 
 				if (substr($line, 0, 15) == "export function") {
 					$this->parseFunction();
-					if ($this->obfw->isEnd()){
-						return;
-					}
 					continue;
 				}
 				if (substr($line, 0, 5) == "class" || substr($line, 0, 9) == "interface") {
@@ -207,9 +227,6 @@ namespace tptophp {
 					$this->getIndent();
 					echo $indent."}".PHP_EOL;
 					$this->parseModule($currentNamespace);
-					if ($this->obfw->isEnd()){
-						return;
-					}
 					echo $indent . "namespace " . join("\\", $currentNamespace) . " {" . PHP_EOL;
 					$this->indentNum=$oldIndentNum;
 					$this->getIndent();
@@ -227,9 +244,6 @@ namespace tptophp {
 					if (count($parts)==2){
 						if (strpos($line,"{")!==false){
 							$var = $this->parseArray();
-							if ($this->obfw->isEnd()){
-								return ;
-							}
 							echo "const ".$parts[0]."=".json_encode($var).";";
 							continue;
 						}else {
@@ -256,17 +270,11 @@ namespace tptophp {
 						continue;
 					}else{
 						$this->parseClass();
-						if ($this->obfw->isEnd()){
-							break;
-						}
 						continue;
 					}
 				}
 
-
-				$this->obfw->end();
-				echo "2:undefined line {$this->actualFileName}:".($this->lineNum+1).":`{$line}`";
-				break;
+				throw new UnexpectedSyntaxException($this->actualFileName,$this->lineNum+1,$line,3);
 			}
 			$this->oudent();
 			echo "}".PHP_EOL;
@@ -432,9 +440,6 @@ namespace tptophp {
 					}
 					if (strpos($line,"{")!==false && strpos($line,"}")===false && strpos($line,")")===false){
 						$this->parseArray();
-						if ($this->obfw->isEnd()){
-							return;
-						}
 						$line = $line."callable".$this->getCurrentLine();
 						$line =str_replace(["{","}"],"",$line);
 						$lastPos=strpos($line,")");
@@ -559,10 +564,6 @@ namespace tptophp {
 						if (substr(trim($propertyType), 0, 1) == "{") {
 							$propertyType="[]";
 							$defaultValue = $this->parseArray();
-							if ($this->obfw->isEnd()){
-								return;
-							}
-
 						}
 					}
 				}
@@ -742,9 +743,7 @@ namespace tptophp {
 				echo "){}".PHP_EOL;
 
 			}else{
-
-				$this->obfw->end();
-				echo "4:undefined line {$this->actualFileName}:".($this->lineNum+1).":`{$line}`";
+				throw new UnexpectedSyntaxException($this->actualFileName,$this->lineNum+1,$line,4);
 			}
 		}
 	}

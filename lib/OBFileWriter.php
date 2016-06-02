@@ -42,10 +42,4 @@ class OBFileWriter {
 		fwrite($this->_fp, $buffer);
 	}
 	
-	public function isEnd(){
-		if ($this->_fp==null){
-			return true;
-		}
-		return false;
-	}
 }
