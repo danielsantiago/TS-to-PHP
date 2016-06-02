@@ -51,7 +51,7 @@ namespace tptophp {
 		private $existedClasses=[];
 		private $currentNamespace="";
 		private $knownNamespaceClasses=[];
-		
+
 		public static function convert($tsFilePath,$exportFilePath){
 			if (self::$self==null){
 				self::$self=new self();
@@ -60,7 +60,6 @@ namespace tptophp {
 			self::$self->existedClasses=[];
 			self::$self->actualFileName=basename($tsFilePath);
 			self::$self->obfw = new OBFileWriter($exportFilePath);
-			self::$self->obfw->start();
 
 			self::$self->lines = file($tsFilePath);
 			self::$self->lineNum=0;
@@ -68,6 +67,14 @@ namespace tptophp {
 			self::$self->currentNamespace="";
 			self::$self->knownNamespaceClasses=[];
 			try {
+				self::$self->obfw->start(true);
+				self::$self->_convert();
+
+				self::$self->existedClasses=[];
+				self::$self->lineNum=0;
+				self::$self->indentNum=0;
+				self::$self->currentNamespace="";
+				self::$self->obfw->start();
 				self::$self->_convert();
 			}catch (UnexpectedSyntaxException $e){
 				self::$self->obfw->end();
@@ -503,7 +510,9 @@ namespace tptophp {
 							while (($pos_=strpos($type,"/*"))!==false && ($lastPos_=strpos($type,"*/"))!==false){
 								$type=substr($type,0,$pos_).substr($type,$lastPos_+1);
 							}
-
+							if (strpos($type,"{")!==false){
+								$type="array";
+							}
 							$this->checkClassNamespace($type);
 
 							$paramComment.=$type." ";
@@ -740,7 +749,7 @@ namespace tptophp {
 					$type = $this->replaceTypes[strtolower($type)];
 					goto addType;
 				}
-				if (in_array(strtolower($type),["number","string","boolean","void"])){
+				if (in_array(strtolower($type),["number","string","boolean","void","array"])){
 					goto addType;
 				}
 				$corrected=false;
