@@ -37,7 +37,9 @@ class OBFileWriter {
 	}
 
 	public function end() {
-		@ob_end_flush();
+		if (!ob_end_flush()){
+			throw new \Exception("Cannot end output");
+		}
 		if ($this->_fp) {
 			fclose($this->_fp);
 		}
@@ -45,7 +47,7 @@ class OBFileWriter {
 	}
 
 	public function outputHandler($buffer) {
-		if ($this->isFake || $this->_fp==null){
+		if ($this->isFake){
 			return;
 		}
 		fwrite($this->_fp, $buffer);

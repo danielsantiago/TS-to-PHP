@@ -51,6 +51,7 @@ namespace tptophp {
 		private $existedClasses=[];
 		private $currentNamespace="";
 		private $knownNamespaceClasses=[];
+		private $isPreprocess=false;
 
 		public static function convert($tsFilePath,$exportFilePath){
 			if (self::$self==null){
@@ -67,8 +68,11 @@ namespace tptophp {
 			self::$self->currentNamespace="";
 			self::$self->knownNamespaceClasses=[];
 			try {
+				self::$self->isPreprocess=true;
 				self::$self->obfw->start(true);
 				self::$self->_convert();
+				self::$self->obfw->end();
+				self::$self->isPreprocess=false;
 
 				self::$self->existedClasses=[];
 				self::$self->lineNum=0;
@@ -312,6 +316,7 @@ namespace tptophp {
 			$line = str_replace(["export","enum","{",], "", $line);
 			$line = trim($line);
 
+			$this->addClassNamespace($line);
 			$class = new ClassType($line);
 
 			$enumNum=0;
@@ -689,7 +694,7 @@ namespace tptophp {
 					}
 					if ($type){
 						$this->checkClassNamespace($type);
-						$paramComment.=$type;
+						$paramComment.=$type." ";
 					}
 					if ($isMultiple){
 						$paramComment.="...";
@@ -737,6 +742,7 @@ namespace tptophp {
 			$types = explode("|",$type);
 			$correctedTypes=[];
 			foreach($types as $type){
+				$type=trim($type);
 				$isArray=false;
 				if (strpos($type,"\\")===0){
 					$type=substr($type,1);
@@ -777,7 +783,9 @@ namespace tptophp {
 			if (!array_key_exists($this->currentNamespace,$this->knownNamespaceClasses)){
 				$this->knownNamespaceClasses[$this->currentNamespace]=[];
 			}
-			$this->knownNamespaceClasses[$this->currentNamespace][]=$class;
+			if (!in_array($class,$this->knownNamespaceClasses[$this->currentNamespace])) {
+				$this->knownNamespaceClasses[$this->currentNamespace][] = $class;
+			}
 		}
 	}
 	
