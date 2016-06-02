@@ -44,7 +44,13 @@ namespace tptophp {
 		private $lines=[];
 		private $lineNum=0;
 		private $reservedKeyword=["default","function","eval","array"];
+		private $replaceTypes=[
+			"any"=>"mixed",
+			"function"=>"callable"
+		];
 		private $existedClasses=[];
+		private $currentNamespace="";
+		private $knownNamespaceClasses=[];
 		
 		public static function convert($tsFilePath,$exportFilePath){
 			if (self::$self==null){
@@ -59,6 +65,8 @@ namespace tptophp {
 			self::$self->lines = file($tsFilePath);
 			self::$self->lineNum=0;
 			self::$self->indentNum=0;
+			self::$self->currentNamespace="";
+			self::$self->knownNamespaceClasses=[];
 			try {
 				self::$self->_convert();
 			}catch (UnexpectedSyntaxException $e){
@@ -97,6 +105,7 @@ namespace tptophp {
 				}
 				if (substr($line, 0, 11) == "declare var" || substr($line, 0, 3) == "var") {
 					echo "namespace {" . PHP_EOL;
+					$this->currentNamespace="";
 					$indent = $this->indent();
 					$line=trim(str_replace(["var","declare"],"",$line));
 					$parts = explode(":",$line);
@@ -138,6 +147,7 @@ namespace tptophp {
 				}
 				if (substr($line, 0, 13) == "declare class" || substr($line, 0, 9) == "interface") {
 					echo "namespace {" . PHP_EOL;
+					$this->currentNamespace="";
 					$this->indent();
 					$this->parseClass();
 					$this->oudent();
@@ -149,6 +159,7 @@ namespace tptophp {
 				}
 				if (substr($line, 0, 16) == "declare function" || substr($line, 0, 15) == "export function") {
 					echo "namespace {" . PHP_EOL;
+					$this->currentNamespace="";
 					$this->indent();
 					$this->parseFunction();
 					$this->oudent();
@@ -171,10 +182,13 @@ namespace tptophp {
 				$name="_";
 			}
 			if ($checkExist) {
-				while (in_array(strtolower(trim($name)), $this->existedClasses)) {
+				if (!array_key_exists($this->currentNamespace,$this->existedClasses)){
+					$this->existedClasses[$this->currentNamespace]=[];
+				}
+				while (in_array(strtolower(trim($name)), $this->existedClasses[$this->currentNamespace])) {
 					$name = trim($name) . "_";
 				}
-				$this->existedClasses[] = strtolower(trim($name));
+				$this->existedClasses[$this->currentNamespace][] = strtolower(trim($name));
 			}
 		}
 
@@ -198,6 +212,7 @@ namespace tptophp {
 				$currentNamespace[]=trim($namespace);
 			}
 			echo $indent . "namespace " . join("\\", $currentNamespace) . " {" . PHP_EOL;
+			$this->currentNamespace = join("\\",$currentNamespace);
 			$indent = $this->indent();
 			while (($line= $this->getNextLine()) !==false) {
 				if (substr($line,0,2)=="//"){
@@ -231,6 +246,7 @@ namespace tptophp {
 					echo $indent."}".PHP_EOL;
 					$this->parseModule($currentNamespace);
 					echo $indent . "namespace " . join("\\", $currentNamespace) . " {" . PHP_EOL;
+					$this->currentNamespace = join("\\",$currentNamespace);
 					$this->indentNum=$oldIndentNum;
 					$this->getIndent();
 					continue;
@@ -345,25 +361,21 @@ namespace tptophp {
 			$line = str_replace(["export","declare", "class", "interface", "extends", "{", '"', "'",":","var"], "", $line);
 			$line = trim($line);
 			$this->checkReservedKeyword($line);
-
+			$this->addClassNamespace($line);
 			$class = new ClassType($line);
 			if ($isInterface) {
 				$class->setType('interface');
 			}
 			if ($isExtend){
 				$this->checkReservedKeyword($classType,false);
-				if (substr($classType,0,1)!="\\"){
-					$classType="\\".$classType;
-				}
-				$class->addExtend(str_replace(".","\\",$classType));
+				$this->checkClassNamespace($classType);
+				$class->addExtend($classType);
 			}
 			if ($isImplements){
 				foreach($implementsTypes as $type){
 					$this->checkReservedKeyword($type,false);
-					if (substr($type,0,1)!="\\"){
-						$type="\\".$type;
-					}
-					$class->addImplement(str_replace(".","\\",$type));
+					$this->checkClassNamespace($type);
+					$class->addImplement($type);
 				}
 			}
 
@@ -491,19 +503,10 @@ namespace tptophp {
 							while (($pos_=strpos($type,"/*"))!==false && ($lastPos_=strpos($type,"*/"))!==false){
 								$type=substr($type,0,$pos_).substr($type,$lastPos_+1);
 							}
-							$type=str_replace(".","\\",$type)." ";
-							$type = str_replace(["any","Function"],["mixed","callable"],$type);
 
-							$type = explode("|",$type);
-							foreach($type as $key=>$type_) {
-								if (substr($type_, 0, 1) != "\\") {
-									$type_ = "\\" . $type_;
-									$type[$key]=$type_;
-								}
-							}
-							$type=join("|",$type);
+							$this->checkClassNamespace($type);
 
-							$paramComment.=$type;
+							$paramComment.=$type." ";
 						}
 						if ($isMultiple){
 							$paramComment.="...";
@@ -524,22 +527,10 @@ namespace tptophp {
 					if (strpos($return,":")!==false){
 						$return=str_replace([":",";"," "],"",$return);
 						$return=str_replace($isUnableType,"mixed",$return);
-						if (!$returnComment) {
-							$returnComment = "@return ";
-						}
-						$return = str_replace(".", "\\", $return) . " ";
-						$return = str_replace(["any","Function"],["mixed","callable"],$return);
 
-						$return = explode("|",$return);
-						foreach($return as $key=>$type) {
-							if (substr($type, 0, 1) != "\\") {
-								$type = "\\" . $type;
-								$return[$key]=$type;
-							}
-						}
-						$return=join("|",$return);
+						$this->checkClassNamespace($return);
 
-						$returnComment .= $return;
+						$returnComment .= $return." ";
 					}
 					if ($currentCommentReturn){
 						$returnComment .= $currentCommentReturn;
@@ -573,16 +564,8 @@ namespace tptophp {
 				if ($isInterface){
 					$comment = "@property ";
 					if ($propertyType) {
-						$propertyType = explode("|",$propertyType);
-						foreach($propertyType as $key=>$type) {
-							if (substr($type, 0, 1) != "\\") {
-								$type = "\\" . $type;
-								$propertyType[$key]=$type;
-							}
-						}
-						$propertyType=join("|",$propertyType);
-						$propertyType = str_replace(["any","Function"],["mixed","callable"],$propertyType);
-						$comment .= str_replace(".", '\\', $propertyType)." ";
+						$this->checkClassNamespace($propertyType);
+						$comment .= $propertyType." ";
 					}
 					$comment.="\${$property} ";
 					$comment.=join(" ",$currentComment);
@@ -602,16 +585,8 @@ namespace tptophp {
 						$currentComment = [];
 					}
 					if ($propertyType) {
-						$propertyType = explode("|",$propertyType);
-						foreach($propertyType as $key=>$type) {
-							if (substr($type, 0, 1) != "\\") {
-								$type = "\\" . $type;
-								$propertyType[$key]=$type;
-							}
-						}
-						$propertyType=join("|",$propertyType);
-						$propertyType = str_replace(["any","Function"],["mixed","callable"],$propertyType);
-						$classProperty->addComment("@var " . str_replace(".", '\\', $propertyType));
+						$this->checkClassNamespace($propertyType);
+						$classProperty->addComment("@var " .$propertyType);
 					}
 				}
 				continue;
@@ -704,8 +679,7 @@ namespace tptophp {
 						}
 					}
 					if ($type){
-						$type=str_replace(".","\\",$type)." ";
-						$type = str_replace(["any"],["mixed"],$type);
+						$this->checkClassNamespace($type);
 						$paramComment.=$type;
 					}
 					if ($isMultiple){
@@ -725,8 +699,7 @@ namespace tptophp {
 					if (!$returnComment) {
 						$returnComment = "@return ";
 					}
-					$return = str_replace(".", "\\", $return) . " ";
-					$return = str_replace(["any"],["mixed"],$return);
+					$this->checkClassNamespace($return);
 					$returnComment .= $return;
 				}
 
@@ -748,6 +721,54 @@ namespace tptophp {
 			}else{
 				throw new UnexpectedSyntaxException($this->actualFileName,$this->lineNum+1,$line,4);
 			}
+		}
+
+		private function checkClassNamespace(&$orgType) {
+			$type = str_replace(".","\\",$orgType);
+			$types = explode("|",$type);
+			$correctedTypes=[];
+			foreach($types as $type){
+				$isArray=false;
+				if (strpos($type,"\\")===0){
+					$type=substr($type,1);
+				}
+				if (substr($type,-2)=="[]"){
+					$isArray=true;
+					$type=substr($type,0,-2);
+				}
+				if (array_key_exists(strtolower($type), $this->replaceTypes)){
+					$type = $this->replaceTypes[strtolower($type)];
+					goto addType;
+				}
+				if (in_array(strtolower($type),["number","string","boolean","void"])){
+					goto addType;
+				}
+				$corrected=false;
+				if (array_key_exists($this->currentNamespace,$this->knownNamespaceClasses)) {
+					foreach ($this->knownNamespaceClasses[$this->currentNamespace] as $class){
+						if ($type==$class){
+							$corrected=true;
+							break;
+						}
+					}
+				}
+				if (!$corrected){
+					$type="\\".$type;
+				}
+				addType:
+				if ($isArray){
+					$type.="[]";
+				}
+				$correctedTypes[]=$type;
+			}
+			$orgType = join("|",$correctedTypes);
+		}
+
+		private function addClassNamespace($class){
+			if (!array_key_exists($this->currentNamespace,$this->knownNamespaceClasses)){
+				$this->knownNamespaceClasses[$this->currentNamespace]=[];
+			}
+			$this->knownNamespaceClasses[$this->currentNamespace][]=$class;
 		}
 	}
 	
